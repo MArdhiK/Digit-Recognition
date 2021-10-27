@@ -1,0 +1,107 @@
+#Library
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+library(caret)
+library(RColorBrewer)
+library(doMC)
+library(neuralnet)
+library(FNN)
+library(EBImage)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+train<-read_csv("train.csv")
+test<-read_csv("test.csv")
+
+dim(train) ; dim(test)
+```
+
+```{r, message=FALSE, warning=FALSE}
+head(train)
+```
+
+```{r, message=FALSE, warning=FALSE}
+head(test)
+```
+
+#change column label to be factor type
+```{r, message=FALSE, warning=FALSE}
+train[,1] <- as.factor(train[,1]$label)
+
+head(train[,1])
+```
+
+#the other column need to be numeric type
+```{r, message=FALSE, warning=FALSE}
+head(sapply(train[1,], class))
+```
+
+#backup the data
+```{r, message=FALSE, warning=FALSE}
+train_orig<-train
+test_orig<-test
+```
+
+#prepare for training and test
+```{r, message=FALSE, warning=FALSE}
+nzv.data<-nearZeroVar(train, saveMetrics = TRUE)
+drop.cols<-rownames(nzv.data)[nzv.data$nzv==TRUE]
+train<-train[,!names(train) %in% drop.cols]
+test<-test[,!names(test) %in% drop.cols]
+```
+
+#see the data 
+```{r}
+BNW<-c("white","black")
+CUSTOM_BNW<-colorRampPalette(colors=BNW)
+par(mfrow = c(4,3), pty="s", mar=c(1, 1, 1, 1), xaxt = "n", yaxt = "n")
+images_digits_0_9<-array(dim=c(10,28*28))
+for (digit in 0:9) {
+  images_digits_0_9[digit + 1,] <- apply(train_orig[train_orig[,1]==digit, -1], 2, sum)
+  images_digits_0_9[digit + 1,] <- images_digits_0_9[digit + 1,]/max(images_digits_0_9[digit + 1,]) * 255
+  z<-array(images_digits_0_9[digit + 1,], dim = c(28, 28))
+  z<-z[, 28:1]
+  image(1:28, 1:28, z, main=digit, col=CUSTOM_BNW(256))
+}
+
+```
+
+#To know the percentage of digit in the training set
+```{r}
+CUSTOM_BNW_PLOT<-colorRampPalette(brewer.pal(10, "Set3"))
+LabTable<-table(train_orig$label)
+par(mfrow=c(1,1))
+percentage<-round(LabTable/sum(LabTable)*100)
+labels<-paste0(row.names(LabTable), " (", percentage, "%)")
+pie(LabTable, labels = labels, col = CUSTOM_BNW_PLOT(10), main = "Percentage of Digits (Training Set)")
+```
+
+#Use 10% trainset and 10% validation set to make faster in process
+```{r}
+set.seed(43210)
+
+trainIndex <- createDataPartition(train$label, p=0.1, list = FALSE, times=1)
+allindices <- c(1:42000)
+training <- train[trainIndex,]
+validating <- train[-trainIndex,]
+valid0_index <- allindices[! allindices %in% trainIndex]
+
+validIndex<-createDataPartition(validating$label, p=0.1, list = FALSE, times=1)
+validating <- validating[validIndex,]
+original_validIndex <- valid0_index[validIndex]
+```
+
+#Use SVM
+```{r}
+registerDoMC(cores=3)
+tc <- trainControl(method = "cv", number=4, verboseIter = F, allowParallel = T)
+modSVMR1 <- train(label ~. , data=training, method="svmRadial", trControl=tc)
+SVMRadial_predict1 <- as.numeric(predict(modSVMR1, newdata=validating))-1
+```
+
+```{r}
+confusionMatrix(factor(SVMRadial_predict1), validating$label)
+
+```
+
